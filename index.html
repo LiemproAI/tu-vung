@@ -72,6 +72,7 @@ body.fcm .list,body.fcm .more{display:none}
 .fnav{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
 .fpos{text-align:center;color:var(--mut);font-size:13px;margin-top:8px}
 
+.card{scroll-margin-top:150px}.card.flash{animation:fl 1.6s ease-out}@keyframes fl{0%{box-shadow:0 0 0 4px var(--c)}100%{box-shadow:0 0 0 0 transparent}}
 .note{color:var(--mut);font-size:13px;margin-top:2px}
 .sn{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
 .sn:first-of-type{border-top:0}
@@ -90,7 +91,7 @@ body.fcm .list,body.fcm .more{display:none}
 <div class="prog"><div class="bar"><i id="pb"></i></div><b id="pt">0 / 0 đã thuộc</b></div>
 </header>
 <div class="tools">
-<input type="search" id="q" placeholder="Tìm từ hoặc nghĩa" aria-label="Tìm từ">
+<input type="search" id="q" placeholder="Tìm từ hoặc nghĩa" aria-label="Tìm từ"><button class="btn" id="tra" title="Nhập từ rồi bấm để nhảy tới từ đó">Tra từ</button>
 <select id="ch" aria-label="Chủ đề"><option value="">Mọi chủ đề</option></select>
 <select id="rate" aria-label="Tốc độ đọc"><option value="0.7">Đọc chậm</option><option value="0.9" selected>Đọc vừa</option><option value="1.05">Đọc nhanh</option></select>
 <button class="btn" id="tI">IPA</button><button class="btn" id="tV">Dịch</button><button class="btn" id="tU">Chưa thuộc</button><button class="btn" id="tF">Flashcard</button>
@@ -114,7 +115,15 @@ $('lv').innerHTML=[['','Tất cả'],['A1','A1'],['A2','A2'],['B1','B1'],['B2','
 function progress(){const n=D.filter(d=>known[d.id]).length;$('pt').textContent=n+' / '+D.length+' đã thuộc';$('pb').style.width=(100*n/D.length)+'%'}
 function filt(){const q=$('q').value.trim().toLowerCase(),c=$('ch').value;
  list=D.filter(d=>(!lv||d.lv===lv)&&(!c||d.ch===c)&&(!onlyNew||!known[d.id])&&(!q||d.words.some(w=>w.w.toLowerCase().includes(q))||VI(d).toLowerCase().includes(q)||d.s.some(s=>s.d.toLowerCase().includes(q))));
+ if(q)list=list.map((d,i)=>[d,i]).sort((a,b)=>rank(a[0],q)-rank(b[0],q)||a[1]-b[1]).map(x=>x[0]);
  $('cnt').textContent=list.length+' mục'}
+const rank=(d,q)=>d.words.some(w=>w.w.toLowerCase()===q)?0:d.words.some(w=>w.w.toLowerCase().startsWith(q))?1:2;
+function lookup(){const q=$('q').value.trim().toLowerCase();if(!q){$('q').focus();return}
+ lv='';document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.l===''));$('ch').value='';onlyNew=false;$('tU').classList.remove('on');
+ apply();const ex=list.length&&rank(list[0],q)===0;
+ $('cnt').textContent=!list.length?'Không tìm thấy "'+q+'"':ex?'Đã tìm thấy "'+q+'" ('+list.length+' mục)':'Không có đúng "'+q+'", hiện '+list.length+' mục gần giống';
+ if(document.body.classList.contains('fcm'))return;
+ const c=$('out').querySelector('.card');if(c){c.style.scrollMarginTop=(document.querySelector('.tools').offsetHeight+10)+'px';c.scrollIntoView({behavior:'smooth',block:'start'});c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}}
 function sense(s){return `<div class="sn"><div class="sh"><span class="sp" data-l="${s.l}">${esc(s.p)} · ${s.l}</span><span class="sv">${esc(s.v)}</span></div><p class="sd">${esc(s.d)}</p><div class="exs"><div class="ex"><button class="spk sm" data-s="${esc(s.e)}" aria-label="Nghe câu ví dụ">🔊</button><div><p class="en">${esc(s.e)}</p><p class="ipa">/${s.ei}/</p><p class="vi">${esc(s.ev)}</p></div></div></div></div>`}
 function words(d){return d.words.map(x=>`<div class="w"><button class="spk" data-s="${esc(x.w)}" aria-label="Nghe ${esc(x.w)}">🔊</button><div><b>${esc(x.w)}</b><div class="ipa">/${x.i}/</div></div></div>`).join('')}
 function card(d){
@@ -143,7 +152,7 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('change',e=>{const k=e.target.dataset&&e.target.dataset.k;if(!k)return;if(e.target.checked)known[k]=1;else delete known[k];save();progress();const a=$('k'+k);if(a)a.classList.toggle('done',e.target.checked)});
 $('more').onclick=more;
-$('q').oninput=apply;$('ch').onchange=apply;
+$('q').oninput=apply;$('tra').onclick=lookup;$('q').addEventListener('keydown',e=>{if(e.key==='Enter')lookup()});$('ch').onchange=apply;
 $('tI').onclick=e=>{document.body.classList.toggle('hide-ipa');e.target.classList.toggle('on')};
 $('tV').onclick=e=>{document.body.classList.toggle('hide-vi');e.target.classList.toggle('on')};
 $('tU').onclick=e=>{onlyNew=!onlyNew;e.target.classList.toggle('on',onlyNew);apply()};
@@ -151,4 +160,5 @@ $('tF').onclick=e=>{const on=document.body.classList.toggle('fcm');e.target.clas
 document.addEventListener('keydown',e=>{if(!document.body.classList.contains('fcm')||/INPUT|SELECT/.test(e.target.tagName))return;if(e.key==='ArrowRight')$('fn')&&$('fn').click();if(e.key==='ArrowLeft')$('fp')&&$('fp').click();if(e.key===' '){e.preventDefault();$('fcard')&&$('fcard').click()}});
 progress();apply();
 </script>
+
 </html>
