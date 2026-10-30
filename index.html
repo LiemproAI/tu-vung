@@ -618,9 +618,15 @@ async function aiInit(){if(aiTried)return;aiTried=true;try{const h=await (await 
  if(cur&&tab==='p'&&state==='idle')render()}catch(e){aiOK=false}}
 const useAI=()=>aiOK&&vname.startsWith('ai:');
 async function speakAI(text,r,done){try{speechSynthesis.cancel()}catch(e){}if(aiAud){aiAud.pause();aiAud=null}
- const id=vname.slice(3),sp=Math.max(.5,Math.min(1.6,r/0.9)),key=id+'|'+sp.toFixed(2)+'|'+text;let fin=false;const end=()=>{if(fin)return;fin=true;done&&done()};
- try{let u=aiCache.get(key);if(!u){const rr=await aiFetch('/api/multi/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,language:'English',voice:id,accent:'american accent',fast:false,speed:+sp.toFixed(2)})});if(!rr.ok)throw rr.status;u=URL.createObjectURL(await rr.blob());if(aiCache.size>80)aiCache.clear();aiCache.set(key,u)}
-  const a=new Audio(u);aiAud=a;a.onended=end;a.onerror=end;await a.play();later(end,90000)}catch(e){if(!fin){fin=true;aiOK=false;msg='Không gọi được AI Audio Studio, đã chuyển sang giọng trình duyệt.';speakBrowser(text,r,done)}}}
+ const id=vname.slice(3),sp=+Math.max(.5,Math.min(1.6,r/0.9)).toFixed(2),key=id+'|'+sp+'|'+text;let fin=false;const end=()=>{if(fin)return;fin=true;done&&done()};let err='';
+ try{let u=aiCache.get(key);if(!u){
+   const tries=[{text,language:'English',voice:id,accent:'american accent',fast:false,speed:sp},{text,language:'English',voice:id,speed:sp},{text,language:'English',voice:id}];
+   for(const body of tries){try{const rr=await aiFetch('/api/multi/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     if(!rr.ok){let d='';try{const j=await rr.json();d=typeof j.detail==='string'?j.detail:JSON.stringify(j.detail||j)}catch(x){}err='HTTP '+rr.status+(d?': '+d.slice(0,160):'');continue}
+     const bl=await rr.blob();if(!bl.size){err='server trả về file rỗng';continue}u=URL.createObjectURL(bl);break}catch(x){err='không kết nối được ('+(x&&x.message||x)+')'}}
+   if(!u)throw new Error(err||'không có âm thanh');if(aiCache.size>80)aiCache.clear();aiCache.set(key,u)}
+  const a=new Audio(u);aiAud=a;a.onended=end;a.onerror=()=>{err='không phát được file âm thanh';end()};try{await a.play()}catch(x){throw new Error('trình duyệt chặn phát âm thanh: '+(x&&x.name||x))}later(end,90000)}
+ catch(e){if(!fin){fin=true;msg='AI Audio Studio lỗi: '+(e.message||err)+'. Đã chuyển sang giọng trình duyệt.';speakBrowser(text,r,done);render()}}}
 const clr=()=>{timers.forEach(clearTimeout);timers=[]};
 const later=(f,ms)=>{const t=setTimeout(f,ms);timers.push(t);return t};
 /* ---------- giọng nói ---------- */
