@@ -606,11 +606,27 @@ let vname='';try{vname=localStorage.getItem('shadow-voice')||''}catch(e){}
 const enVoices=()=>{try{return speechSynthesis.getVoices().filter(v=>/^en[-_]/i.test(v.lang)).sort((a,b)=>(/natural|neural|online/i.test(b.name)-/natural|neural|online/i.test(a.name))||(/en[-_]US/i.test(b.lang)-/en[-_]US/i.test(a.lang))||a.name.localeCompare(b.name))}catch(e){return[]}};
 const pickV=()=>{const v=enVoices();return v.find(x=>x.name===vname)||v.find(x=>/natural|neural|online/i.test(x.name)&&/en[-_]US/i.test(x.lang))||null};
 try{speechSynthesis.addEventListener('voiceschanged',()=>{if(cur&&tab==='p'&&state==='idle')render()})}catch(e){}
+const AIB=['http://127.0.0.1:8001','http://localhost:8001'].concat(location.protocol.startsWith('http')&&/^(localhost|127\.)/.test(location.hostname)?['']:[]);
+let aiBase=null,aiVoices=[],aiOK=false,aiTried=false,aiAud=null;const aiCache=new Map();
+const NAMEVI={'nu-tre':'Nữ trẻ','nu-trung-nien':'Nữ trung niên','nu-teen':'Nữ teen','nam-tre':'Nam trẻ','nam-trung-nien':'Nam trung niên','nam-lon-tuoi':'Nam lớn tuổi'};
+async function aiFetch(path,opt){const order=aiBase!=null?[aiBase,...AIB.filter(b=>b!==aiBase)]:AIB;let last;for(const b of order){try{const r=await fetch(b+path,opt);if(b===''&&r.status===404)continue;aiBase=b;return r}catch(e){last=e}}throw last||new Error('no server')}
+async function aiInit(){if(aiTried)return;aiTried=true;try{const h=await (await aiFetch('/api/health')).json();if(h&&h.status&&h.status.loaded===false){aiTried=false;return}const m=await (await aiFetch('/api/multi/status')).json();
+ const ids=a=>(a||[]).map(x=>typeof x==='string'?{id:x}:{id:x.id||x.name,label:x.label||x.name}).filter(x=>x.id);
+ const d=ids(m.voices&&m.voices.designed),v=ids(m.voices&&m.voices.vieneu);
+ aiVoices=[...d.map(x=>({id:x.id,label:NAMEVI[x.id]||x.label||x.id})),...v.map(x=>({id:String(x.id).startsWith('vn:')?x.id:'vn:'+x.id,label:'Giọng Việt: '+(x.label||x.id)}))];
+ aiOK=aiVoices.length>0;if(aiOK&&!vname)vname='ai:'+(aiVoices.some(x=>x.id==='nu-trung-nien')?'nu-trung-nien':aiVoices[0].id);
+ if(cur&&tab==='p'&&state==='idle')render()}catch(e){aiOK=false}}
+const useAI=()=>aiOK&&vname.startsWith('ai:');
+async function speakAI(text,r,done){try{speechSynthesis.cancel()}catch(e){}if(aiAud){aiAud.pause();aiAud=null}
+ const id=vname.slice(3),sp=Math.max(.5,Math.min(1.6,r/0.9)),key=id+'|'+sp.toFixed(2)+'|'+text;let fin=false;const end=()=>{if(fin)return;fin=true;done&&done()};
+ try{let u=aiCache.get(key);if(!u){const rr=await aiFetch('/api/multi/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,language:'English',voice:id,accent:'american accent',fast:false,speed:+sp.toFixed(2)})});if(!rr.ok)throw rr.status;u=URL.createObjectURL(await rr.blob());if(aiCache.size>80)aiCache.clear();aiCache.set(key,u)}
+  const a=new Audio(u);aiAud=a;a.onended=end;a.onerror=end;await a.play();later(end,90000)}catch(e){if(!fin){fin=true;aiOK=false;msg='Không gọi được AI Audio Studio, đã chuyển sang giọng trình duyệt.';speakBrowser(text,r,done)}}}
 const clr=()=>{timers.forEach(clearTimeout);timers=[]};
 const later=(f,ms)=>{const t=setTimeout(f,ms);timers.push(t);return t};
 /* ---------- giọng nói ---------- */
-function stopAll(){clr();try{speechSynthesis.cancel()}catch(e){}try{if(rec){rec.onend=null;rec.abort()}}catch(e){}rec=null;stopRec(true);state='idle'}
-function speak(text,r,done){try{speechSynthesis.cancel()}catch(e){}
+function stopAll(){clr();try{if(aiAud){aiAud.pause();aiAud=null}}catch(e){}try{speechSynthesis.cancel()}catch(e){}try{if(rec){rec.onend=null;rec.abort()}}catch(e){}rec=null;stopRec(true);state='idle'}
+function speak(text,r,done){if(useAI())return speakAI(text,r,done);speakBrowser(text,r,done)}
+function speakBrowser(text,r,done){try{speechSynthesis.cancel()}catch(e){}
  if(!('speechSynthesis' in window)){done&&done();return}
  const u=new SpeechSynthesisUtterance(text);u.lang='en-US';{const pv=pickV()||(typeof voice!=='undefined'?voice:null);if(pv)u.voice=pv}u.rate=r;let fin=false;const end=()=>{if(fin)return;fin=true;done&&done()};u.onend=end;u.onerror=end;speechSynthesis.speak(u);
  later(end,Math.max(4000,text.split(/\s+/).length*600/r+2500))}
@@ -672,7 +688,7 @@ function practiceHTML(){const s=S[idx];const best=cur.sc[idx];
  <div class="stu-ctl"><button class="rnd" data-sh="prev" aria-label="Câu trước">⏮</button><button class="rnd lg" data-sh="listen" aria-label="Nghe mẫu">${state==='play'?'■':'▶'}</button><button class="mic" data-sh="mic" aria-label="Nói">${state==='rec'?'■':'🎤'}</button><button class="rnd" data-sh="next" aria-label="Câu sau">⏭</button></div>
  <button class="auto${flow?' run':''}" data-sh="flow">${flow?'■ Dừng shadowing tự động':'▶ Shadowing tự động: nghe, nói, chấm điểm'}</button>
  <div class="stu-opt"><div class="seg" role="group" aria-label="Tốc độ">${sp}</div><button class="tg${showCk?' on':''}" data-sh="ck">Chia cụm /</button><button class="tg${blind?' on':''}" data-sh="blind">Ẩn chữ</button><button class="tg${autoNext?' on':''}" data-sh="an">Tự sang câu ≥ 80%</button><button class="tg" data-sh="tr">Dịch câu</button></div>
- <div class="stu-opt"><label style="font-size:13px;opacity:.85" for="shV">Giọng đọc mẫu</label><select id="shV" class="sh-in" style="width:auto;max-width:100%;padding:6px 10px;font-size:13px;background:#fff;color:#12396e">${(()=>{const vs=enVoices();const sel=(pickV()||{}).name||'';return vs.length?vs.map(v=>`<option value="${esc(v.name)}"${v.name===sel?' selected':''}>${esc(v.name.replace(/Microsoft |Google /,''))} (${v.lang})${/natural|neural|online/i.test(v.name)?' ★':''}</option>`).join(''):'<option>Giọng mặc định</option>'})()}</select><button class="tg" data-sh="vtest">Nghe thử</button></div>
+ <div class="stu-opt"><label style="font-size:13px;opacity:.85" for="shV">Giọng đọc mẫu</label><select id="shV" class="sh-in" style="width:auto;max-width:100%;padding:6px 10px;font-size:13px;background:#fff;color:#12396e">${(()=>{const vs=enVoices();const selB=(pickV()||{}).name||'';const sel=useAI()?vname:selB;const ai=aiOK?`<optgroup label="AI Audio Studio (giọng tự nhiên)">${aiVoices.map(v=>`<option value="ai:${esc(v.id)}"${('ai:'+v.id)===sel?' selected':''}>${esc(v.label)}</option>`).join('')}</optgroup>`:'';const br=vs.length?`<optgroup label="Giọng trình duyệt">${vs.map(v=>`<option value="${esc(v.name)}"${v.name===sel?' selected':''}>${esc(v.name.replace(/Microsoft |Google /,''))} (${v.lang})${/natural|neural|online/i.test(v.name)?' ★':''}</option>`).join('')}</optgroup>`:'<option>Giọng mặc định</option>';return ai+br})()}</select><button class="tg" data-sh="vtest">Nghe thử</button></div>
  <div class="stu-msg" id="shLive">${esc(msg)}</div></div>`+resHTML()+listHTML()}
 function resHTML(){
  if(summary){const sc=S.map((_,i)=>cur.sc[i]||0),avg=Math.round(sc.reduce((a,b)=>a+b,0)/S.length),weak=sc.map((v,i)=>[v,i]).filter(x=>x[0]<70);
@@ -755,7 +771,8 @@ document.addEventListener('change',e=>{if(e.target.id==='shV'){vname=e.target.va
 document.addEventListener('input',e=>{if(e.target.id==='shX')info()});
 async function translate(t){try{if('Translator' in self){const av=await Translator.availability({sourceLanguage:'en',targetLanguage:'vi'});if(av!=='unavailable'){const T=await Translator.create({sourceLanguage:'en',targetLanguage:'vi'});tr=esc(await T.translate(t));render();return}}}catch(e){}
  tr=`<a href="https://translate.google.com/?sl=en&tl=vi&op=translate&text=${encodeURIComponent(t)}" target="_blank" rel="noopener">Mở Google Dịch cho câu này</a>`;render()}
-window.shInit=()=>{if(!root().innerHTML)render()};
+window.shInit=()=>{if(!root().innerHTML)render();aiInit()};
+root().addEventListener('click',e=>{const x=e.target.closest('[data-s]');if(x&&useAI()){e.stopPropagation();speak(x.dataset.s,rate,()=>{})}},true);
 window.shStop=()=>{stopAll()};
 })();
 
